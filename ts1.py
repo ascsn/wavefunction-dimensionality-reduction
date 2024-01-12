@@ -8,16 +8,16 @@ def taylor_series_expansion(matrix, terms, t):
     result = identity.copy()
     matrix_power = matrix.copy()
 
-    #t = sp.symbols('t')
 
     for i in range(1, terms + 1):
         term = (matrix_power**i) * (t**i) * (1j**i) / np.math.factorial(i)
-        result += sp.Matrix(term)
+        result += term
 
     return result
 
 # Example usage
-A = sp.Matrix([[1, 2],
-               [3, 4]])
-result = taylor_series_expansion(A, 2, 0.5)
-print(result)
+#A = np.array([[1, 2],
+#               [3, 4]])
+#result = taylor_series_expansion(A, 2, 0.5)
+#print(result)
+#print(result.dtype)
