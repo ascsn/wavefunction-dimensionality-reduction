@@ -27,6 +27,11 @@ class hf_solver:
     def __init__(self, h_bar, mass):
         self.h_bar = h_bar
         self.mass = mass
+        self.t = None
+        self.Nt = None
+        # ... existing constructor code ...
+
+        # Initialize domain as an instance attribute
 
     def set_potential(self, Nx, x_min, x_max, q):
         self.Nx = Nx
@@ -41,25 +46,36 @@ class hf_solver:
         
         self.potential = np.diag(P)
 
-    def set_domain(self):
-        ary = self.x.copy()
-        return ary
+    def set_domain(self, min_=-5, max_=5, steps=150):
+        #ary = self.x.copy()
+        self.min_ = min_
+        self.max_ = max_
+        self.steps = steps
+        self.x = np.linspace(self.min_, self.max_, self.steps)
+        self.dx = self.x[1] - self.x[0]
 
-    def set_initial_state(self, initial_state):
-        self.initial_state = initial_state
-
+    def set_initial_state(self, x0=0, sigma=1/(2)**(1/2), p=0):
+        # x0 is the inital position
+        # x is current position
+        # sigma controls the width of the wave
+        # p is the momentum
+        self.k = p / self.h_bar
+        normalization = 1 / np.sqrt(sigma * np.sqrt(np.pi))
+        gaussian_term = np.exp(1j * self.k * self.x - (self.x - x0)**2 / (4 * sigma**2))
+        self.initial_state = normalization * gaussian_term
+        
     def construct_hamiltonian(self):
         hamiltonian = np.zeros((self.Nx,self.Nx))
 
-        finite_diff = -(5/2) * np.eye(self.Nx)
-        finite_diff += (4/3) * np.eye(self.Nx, k=1)
-        finite_diff += (4/3) * np.eye(self.Nx, k=-1)
-        finite_diff += -(1/12) * np.eye(self.Nx, k=2)
-        finite_diff += -(1/12) * np.eye(self.Nx, k=-2)
+        kinetic = -(self.h_bar**2 / (2 * self.mass)) * (
+        -(5/2) * np.eye(self.Nx) +
+        (4/3) * np.eye(self.Nx, k=1) +
+        (4/3) * np.eye(self.Nx, k=-1) +
+        -(1/12) * np.eye(self.Nx, k=2) +
+        -(1/12) * np.eye(self.Nx, k=-2)
+        ) / self.dx**2
 
-        kinetic = -self.h_bar**2 / (2 * self.mass) * (finite_diff/self.dx**2)
-
-        hamiltonian = kinetic + self.potential
+        hamiltonian += kinetic + self.potential
         self.hamiltonian = hamiltonian
 
     
@@ -137,10 +153,10 @@ class hf_solver:
 
         fig, ax = plt.subplots(figsize=(10, 5))
 
-        while self.t_i <= self.t_final:
+        for t in np.linspace(self.t_i, self.t_final, self.Nt):
         
 
-            if self.t_i == 0:
+            if t == 0:
                 total_energy = 0
 
                 final_state = self.initial_state.copy()
@@ -185,7 +201,6 @@ class hf_solver:
                 display(fig) 
                 fig.clear()
 
-            self.t_i += self.dt
 
             time_finish = time.time()
         time_diff = time_finish - time_start
@@ -194,7 +209,9 @@ class hf_solver:
         self.total_energies = total_energies
 
     def graph_energy(self):
-        plt.plot(self.t[:self.Nt-1], self.total_energies)
+        print("Length of self.t:", len(self.t))
+        print("Length of self.total_energies:", len(self.total_energies))
+        plt.plot(self.t, self.total_energies)
         plt.xlabel("Time")
         plt.ylabel("Energy")
         plt.title("Ground State Energy")
