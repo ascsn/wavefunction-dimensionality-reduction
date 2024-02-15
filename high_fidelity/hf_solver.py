@@ -8,52 +8,37 @@ import time
 
 class hf_solver:
     '''
-    This is a high-fidelity solver for time-evolving wave functions, used to generate training data and animations. The quantum harmonic oscillator is currently hardcoded in. Further work is required to 
-    prep the class for non-linear wave functions.
+    This is a high-fidelity solver for time-evolving wave functions, used to generate training data and animations. 
 
     Methods:
-    1. set_potential: Initializes the spacial grid and sets the potential of the wavefunction. Ideally the potential function would be a variable that could be set upon initialization. Further work required.
-    2. set_domain: Used set the domain so it does not have to be hardcoded in. Currently non-functional, further work required.
-    3. set_initial_state: Sets the initial state of the wavefunction.
-    4. construct_hamiltonian: Generates the hamiltonian matrix.
-    5. time_evolution: Initializes the timeframe/timesteps, preforms a taylor series expansion on the time evolution operator.
-    6. run_simulation: Used for generating training data. The collect_data attribute is used to determine the length of time data will be collected for. This is due to exponentially increasing error accumulation.
-    7. run_animation: Plays an animation of the wave propagation.
-    8. graph_energy: Generates an energy/time graph after a complete simulation. Works with both run_simulation and run_animation.
+    1. get_ranges = Used the store the spacial and temporal grids in external variables
+    2. set_initial_state: Sets the initial state of the wavefunction.
+    3. construct_hamiltonian: Generates the hamiltonian matrix. Input tag to choose your wavefunction, current takes: quantum harmonic oscillator ("QHO") or Gross-Pitaevskii ("GP")
+    4. run_simulation: Used for generating training data. The collect_data attribute is used to determine the length of time data will be collected for. This is due to exponentially increasing error accumulation.
+    5. run_animation: Plays an animation of the wave propagation.
+    6. graph_energy: Generates an energy/time graph after a complete simulation. Works with both run_simulation and run_animation.
 
     Questions can be sent to kozeraja@msu.edu
     '''
 
-    def __init__(self, h_bar, mass):
+    def __init__(self, h_bar, mass, ang_freq, dx, x_limit, dt, t_final):
         self.h_bar = h_bar
         self.mass = mass
-        self.t = None
-        self.Nt = None
-        # ... existing constructor code ...
+        self.ang_freq = ang_freq
+        self.dx = dx
+        self.x_limit = x_limit
+        self.dt = dt
+        self.t_final = t_final
 
-        # Initialize domain as an instance attribute
+        self.Nx = int((2*self.x_limit)/self.dx)
+        self.x_range = np.linspace(-self.x_limit, self.x_limit, self.Nx)
 
-    def set_potential(self, Nx, x_min, x_max, q):
-        self.Nx = Nx
-        self.x_min = x_min
-        self.x_max = x_max
-        self.q = q
+        self.Nt = int((self.t_final/self.dt))
+        self.t_range = np.linspace(0, self.t_final, self.Nt)
 
-        self.x = np.linspace(self.x_min, self.x_max, self.Nx)
-        self.dx = self.x[1] - self.x[0]
-
-        P = 0.5 * self.mass * self.q**2 * self.x**2
-        
-        self.potential = np.diag(P)
-
-    def set_domain(self, min_=-5, max_=5, steps=150):
-        #ary = self.x.copy()
-        self.min_ = min_
-        self.max_ = max_
-        self.steps = steps
-        self.x = np.linspace(self.min_, self.max_, self.steps)
-        self.dx = self.x[1] - self.x[0]
-
+    def get_ranges(self):
+        return self.x_range, self.t_range
+    
     def set_initial_state(self, x0=0, sigma=1/(2)**(1/2), p=0):
         # x0 is the inital position
         # x is current position
@@ -61,11 +46,16 @@ class hf_solver:
         # p is the momentum
         self.k = p / self.h_bar
         normalization = 1 / np.sqrt(sigma * np.sqrt(np.pi))
-        gaussian_term = np.exp(1j * self.k * self.x - (self.x - x0)**2 / (4 * sigma**2))
+        gaussian_term = np.exp(1j * self.k * self.x_range - (self.x_range - x0)**2 / (4 * sigma**2))
         self.initial_state = normalization * gaussian_term
         
-    def construct_hamiltonian(self):
+    def construct_hamiltonian(self, type):
+        self.type = type
+
         hamiltonian = np.zeros((self.Nx,self.Nx))
+
+        P = 0.5 * self.mass * self.ang_freq**2 * self.x_range**2
+        self.potential = np.diag(P)
 
         kinetic = -(self.h_bar**2 / (2 * self.mass)) * (
         -(5/2) * np.eye(self.Nx) +
@@ -74,30 +64,14 @@ class hf_solver:
         -(1/12) * np.eye(self.Nx, k=2) +
         -(1/12) * np.eye(self.Nx, k=-2)
         ) / self.dx**2
+        
+        if self.type == "QHO":
+            hamiltonian = kinetic + self.potential
+        elif self.type == "GP":
+            hamiltonian = kinetic + self.potential + np.diag(np.real(np.conj(self.initial_state)*self.initial_state/(np.dot(self.initial_state,np.conj(self.initial_state))*self.dx)))
 
-        hamiltonian += kinetic + self.potential
         self.hamiltonian = hamiltonian
 
-    
-    def time_evolution(self, terms, Nt, t_final):
-        self.Nt = Nt
-        self.t_i = 0
-        self.t_final = t_final
-
-        self.t = np.linspace(self.t_i, t_final, Nt)
-        self.dt = self.t[1] - self.t[0]
-
-        n = self.hamiltonian.shape[0]
-        identity = np.eye(n, dtype=np.complex128)
-        result = identity.copy()
-        matrix_power = self.hamiltonian.copy()
-
-        # Expand time evolution operator e^(-itH)
-        for i in range(1, terms + 1):
-            term = (matrix_power**i) * (self.dt**i) * (-1j**i) / math.factorial(i)
-            result += term
-
-        self.time_evolution_operator = result
 
     def run_simulation(self, collect_data):
         self.t_i = 0
@@ -109,10 +83,10 @@ class hf_solver:
         eigenvalues, eigenvectors = sp.linalg.eigh(self.hamiltonian)
         all_states = np.zeros((collect_data, *np.shape(self.hamiltonian)), dtype=complex)
 
-        while self.t_i <= self.t_final:
+        for t in self.t_range:
             total_energy = 0
 
-            if self.t_i == 0:
+            if t == 0:
                 final_state = self.initial_state.copy()
                 final_state_norm = final_state/np.sqrt(np.dot(final_state,np.conj(final_state))*self.dx)
                 def energy(x):
@@ -120,17 +94,20 @@ class hf_solver:
                     return np.real(np.conj(psi_x) @ self.hamiltonian @ psi_x)
                 if count < collect_data:
                     all_states[count, :, :] = final_state_norm[:]
-                total_energy, _ = quad(energy, self.x_min, self.x_max)
+                total_energy, _ = quad(energy, -self.x_limit, self.x_limit)
                 total_energies.append(total_energy)
     
             else:
 
-                new_state = np.dot(self.time_evolution_operator, final_state_norm)
+                self.initial_state = final_state_norm[:].copy()
+                self.construct_hamiltonian(self.type)
+                teo = sp.linalg.expm((-1j)*self.hamiltonian*(self.dt))
+                new_state = np.dot(teo, final_state_norm)
                 final_state_norm = final_state_norm + new_state
                 final_state_norm = final_state_norm/np.sqrt(np.dot(final_state_norm,np.conj(final_state_norm))*self.dx)
                 if count < collect_data:
                     all_states[count, :, :] = final_state_norm[:]
-                total_energy, _ = quad(energy, self.x_min, self.x_max)
+                total_energy, _ = quad(energy, -self.x_limit, self.x_limit)
                 total_energies.append(total_energy)
 
             self.t_i += self.dt
@@ -144,7 +121,6 @@ class hf_solver:
         return final_state_norm, all_states, total_energies, time_diff
     
     def run_animation(self):
-        self.t_i = 0
         total_energies = []
 
         time_start = time.time()
@@ -153,7 +129,7 @@ class hf_solver:
 
         fig, ax = plt.subplots(figsize=(10, 5))
 
-        for t in np.linspace(self.t_i, self.t_final, self.Nt):
+        for t in self.t_range:
         
 
             if t == 0:
@@ -164,13 +140,13 @@ class hf_solver:
                 def energy(x):
                     psi_x = final_state_norm
                     return np.real(np.conj(psi_x) @ self.hamiltonian @ psi_x)
-                total_energy, _ = quad(energy, self.x_min, self.x_max)
+                total_energy, _ = quad(energy, -self.x_limit, self.x_limit)
                 total_energies.append(total_energy)
 
-                plt.plot(self.x, (np.real(final_state_norm[:])))
-                plt.plot(self.x, (np.imag(final_state_norm[:])))
+                plt.plot(self.x_range, (np.real(final_state_norm[:])))
+                plt.plot(self.x_range, (np.imag(final_state_norm[:])))
     
-                plt.xlim([self.x_min, self.x_max])
+                plt.xlim([-self.x_limit, self.x_limit])
                 plt.ylim([-1,1])
 
                 plt.xlabel("Position")
@@ -181,17 +157,19 @@ class hf_solver:
                 fig.clear()
     
             else:
-
-                new_state = np.dot(self.time_evolution_operator, final_state_norm)
+                self.initial_state = final_state_norm[:].copy()
+                self.construct_hamiltonian(self.type)
+                teo = sp.linalg.expm((-1j)*self.hamiltonian*(self.dt))
+                new_state = np.dot(teo, final_state_norm)
                 final_state_norm = final_state_norm + new_state
                 final_state_norm = final_state_norm/np.sqrt(np.dot(final_state_norm,np.conj(final_state_norm))*self.dx)
-                total_energy, _ = quad(energy, self.x_min, self.x_max)
+                total_energy, _ = quad(energy, -self.x_limit, self.x_limit)
                 total_energies.append(total_energy)
 
-                plt.plot(self.x, (np.real(final_state_norm[:])))
-                plt.plot(self.x, (np.imag(final_state_norm[:])))
+                plt.plot(self.x_range, (np.real(final_state_norm[:])))
+                plt.plot(self.x_range, (np.imag(final_state_norm[:])))
     
-                plt.xlim([self.x_min,self.x_max])
+                plt.xlim([-self.x_limit,self.x_limit])
                 plt.ylim([-1,1])
 
                 plt.xlabel("Position")
@@ -209,9 +187,9 @@ class hf_solver:
         self.total_energies = total_energies
 
     def graph_energy(self):
-        print("Length of self.t:", len(self.t))
+        print("Length of self.t:", len(self.t_range))
         print("Length of self.total_energies:", len(self.total_energies))
-        plt.plot(self.t, self.total_energies)
+        plt.plot(self.t_range, self.total_energies)
         plt.xlabel("Time")
         plt.ylabel("Energy")
         plt.title("Ground State Energy")
