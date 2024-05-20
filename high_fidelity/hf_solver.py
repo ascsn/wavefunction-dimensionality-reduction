@@ -44,6 +44,12 @@ class hf_solver:
     def get_ranges(self):
         return self.x_range, self.t_range
     
+    def get_all_states(self):
+        return self.all_states
+    
+    def get_run_time(self):
+        return self.time_diff
+    
     def set_initial_state(self, x0=0, sigma=1/(2)**(1/2), p=0):
         # x0 is the inital position
         # x is current position
@@ -62,7 +68,7 @@ class hf_solver:
         P = 0.5 * self.mass * self.ang_freq**2 * self.x_range**2
         self.potential = np.diag(P)
 
-        kinetic = -(self.h_bar**2 / (2 * self.mass)) * (
+        self.kinetic = -(self.h_bar**2 / (2 * self.mass)) * (
         -(5/2) * np.eye(self.Nx) +
         (4/3) * np.eye(self.Nx, k=1) +
         (4/3) * np.eye(self.Nx, k=-1) +
@@ -71,111 +77,48 @@ class hf_solver:
         ) / self.dx**2
         
         if self.type == "QHO":
-            hamiltonian = kinetic + self.potential
+            hamiltonian = self.kinetic + self.potential
         elif self.type == "GP":
-            hamiltonian = kinetic + self.potential + (self.q * np.diag(np.real(np.conj(self.initial_state)*self.initial_state/(np.dot(self.initial_state,np.conj(self.initial_state))*self.dx))))
+            hamiltonian = self.kinetic + self.potential + (self.q * np.diag(np.real(np.conj(self.initial_state)*self.initial_state/(np.dot(self.initial_state,np.conj(self.initial_state))*self.dx))))
 
         self.hamiltonian = hamiltonian
-
-
-    def run_simulation(self, collect_data):
-        self.t_i = 0
-        count = 0
-        total_energies = []
-
-        time_start = time.time()
-
-        eigenvalues, eigenvectors = sp.linalg.eigh(self.hamiltonian)
-        all_states = np.zeros((collect_data, *np.shape(self.hamiltonian)), dtype=complex)
-
-        for t in self.t_range:
-            total_energy = 0
-
-            if t == 0:
-                final_state = self.initial_state.copy()
-                final_state_norm = final_state/np.sqrt(np.dot(final_state,np.conj(final_state))*self.dx)
-                def energy(x):
-                    psi_x = final_state_norm
-                    return np.real(np.conj(psi_x) @ self.hamiltonian @ psi_x)
-                if count < collect_data:
-                    all_states[count, :, :] = final_state_norm[:]
-                total_energy, _ = quad(energy, -self.x_limit, self.x_limit)
-                total_energies.append(total_energy)
     
-            else:
-
-                self.initial_state = final_state_norm[:].copy()
-                self.construct_hamiltonian(self.type)
-                teo = sp.linalg.expm((-1j)*self.hamiltonian*(self.dt))
-                new_state = np.dot(teo, final_state_norm)
-                final_state_norm = final_state_norm + new_state
-                final_state_norm = final_state_norm/np.sqrt(np.dot(final_state_norm,np.conj(final_state_norm))*self.dx)
-                if count < collect_data:
-                    all_states[count, :, :] = final_state_norm[:]
-                total_energy, _ = quad(energy, -self.x_limit, self.x_limit)
-                total_energies.append(total_energy)
-
-            self.t_i += self.dt
-            count += 1
-
-        time_finish = time.time()
-        time_diff = time_finish - time_start
-    
-        self.total_energies = total_energies
-
-        return final_state_norm, all_states, total_energies, time_diff
-    
-    def run_animation(self, gif = False):
-        total_energies = []
-        particle_num = []
+    def run_solver(self, gif = False, animation = True, collect_data = False):
+        total_energies = np.ones(self.Nt)
+        total_kinetics = np.ones(self.Nt)
+        total_potentials = np.ones(self.Nt)
+        particle_num = np.ones(self.Nt)
+        all_states = np.zeros((self.Nt, *np.shape(self.hamiltonian)), dtype=complex)
+        step = 0
 
         time_start = time.time()
 
         eigenvalues, eigenvectors = sp.linalg.eigh(self.hamiltonian)
 
-        fig, ax = plt.subplots(figsize=(10, 5))
+        if animation == True:
+            fig, ax = plt.subplots(figsize=(10, 5))
+        else:
+            pass
 
         for t in self.t_range:
         
 
             if t == 0:
-                total_energy = 0
-
                 final_state = self.initial_state.copy()
+
                 final_state_norm = final_state/np.sqrt(np.dot(final_state,np.conj(final_state))*self.dx)
-                #def energy(x):
-                #    psi_x = final_state_norm
-                #    return np.real(np.conj(psi_x) @ self.hamiltonian @ psi_x)
-                #total_energy, _ = quad(energy, -self.x_limit, self.x_limit)
-                total_energy = sp.integrate.trapezoid((np.abs(final_state_norm[:])**2 @ self.hamiltonian), self.x_range)
-                total_energies.append(total_energy)
-                particle_num.append(sp.integrate.trapezoid(np.abs(final_state_norm[:])**2, self.x_range))
 
-                #plt.ioff()
-                plt.plot(self.x_range, (np.real(final_state_norm[:])))
-                plt.plot(self.x_range, (np.imag(final_state_norm[:])))
-                plt.plot(self.x_range, np.abs(final_state_norm[:])**2)
-    
-                plt.xlim([-self.x_limit, self.x_limit])
-                plt.ylim([-1,1])
+                total_energies[step] = np.dot(np.dot(np.conj(final_state_norm[:]),self.hamiltonian), final_state_norm[:])
+                total_kinetics[step] = np.dot(np.dot(np.conj(final_state_norm[:]),self.kinetic), final_state_norm[:])
+                total_potentials[step] = np.dot(np.dot(np.conj(final_state_norm[:]),self.potential), final_state_norm[:])
+                particle_num[step] = sp.integrate.trapezoid(np.abs(final_state_norm[:])**2, self.x_range)
 
-                plt.xlabel("Position")
-                plt.ylabel("Wavefunction")
-                plt.legend(["Real","Imaginary", "Density"])
-                #plt.show()
-
-                frame_filename = f"frame_{t}.png"
-                fig.savefig(frame_filename)
-                self.frames.append(frame_filename)
-
-                clear_output(wait=True)  
-                display(fig) 
-                fig.clear()
-                
+                if collect_data == True:
+                    all_states[step, :, :] = final_state_norm[:]
+                else:
+                    pass
     
             else:
-    
-                # Predictor-Corrector Timestepper
                 self.initial_state = final_state_norm[:].copy()
                 self.construct_hamiltonian(self.type)
                 teo_pred = sp.linalg.expm((-1j)*self.hamiltonian*(self.dt/2))
@@ -186,23 +129,27 @@ class hf_solver:
 
                 final_state_norm = final_state_norm + 0.5*(new_state+self.initial_state)
                 final_state_norm = final_state_norm/np.sqrt(np.dot(final_state_norm,np.conj(final_state_norm))*self.dx)
-                #total_energy, _ = quad(energy, -self.x_limit, self.x_limit)
-                total_energy = sp.integrate.trapezoid((np.abs(final_state_norm[:])**2 @ self.hamiltonian), self.x_range)
-                total_energies.append(total_energy)
-                particle_num.append(sp.integrate.trapezoid(np.abs(final_state_norm[:])**2, self.x_range))
 
-                #plt.ioff()
+                total_energies[step] = np.dot(np.dot(np.conj(final_state_norm[:]),self.hamiltonian), final_state_norm[:])
+                total_kinetics[step] = np.dot(np.dot(np.conj(final_state_norm[:]),self.kinetic), final_state_norm[:])
+                total_potentials[step] = np.dot(np.dot(np.conj(final_state_norm[:]),self.potential), final_state_norm[:])
+                particle_num[step] = sp.integrate.trapezoid(np.abs(final_state_norm[:])**2, self.x_range)
+
+                if collect_data == True:
+                    all_states[step, :, :] = final_state_norm[:]
+                else:
+                    pass
+
+            if animation == True:
                 plt.plot(self.x_range, (np.real(final_state_norm[:])))
                 plt.plot(self.x_range, (np.imag(final_state_norm[:])))
                 plt.plot(self.x_range, np.abs(final_state_norm[:])**2)
     
                 plt.xlim([-self.x_limit,self.x_limit])
                 plt.ylim([-1,1])
-
                 plt.xlabel("Position")
                 plt.ylabel("Wavefunction")
                 plt.legend(["Real","Imaginary", "Density"])
-                #plt.show()
 
                 frame_filename = f"frame_{t}.png"
                 fig.savefig(frame_filename)
@@ -211,27 +158,38 @@ class hf_solver:
                 clear_output(wait=True)  
                 display(fig) 
                 fig.clear()
-                
+            else:
+                pass
 
+            step += 1
 
-            time_finish = time.time()
+        time_finish = time.time()
         time_diff = time_finish - time_start
         print("Time taken:", time_diff, "sec")
 
-        if gif == True:
+        if gif == True and animation == True:
             images = []
             for frame in self.frames:
                 images.append(imageio.imread(frame))
                 os.remove(frame)  # Remove the temporary image file after adding it to the GIF
-            imageio.mimsave('animation.gif', images, loop = 50, duration=0.0001)  # Adjust duration as needed
+            imageio.mimsave('animation.mp4', images, fps=20)  # Adjust duration as needed
+        else:
+            for frame in self.frames:
+                os.remove(frame)
 
         self.total_energies = total_energies
+        self.total_kinetics = total_kinetics
+        self.total_potentials = total_potentials
         self.particle_num = particle_num
+        self.all_states = all_states
+        self.time_diff = time_diff
+        
 
     def graph_energy(self):
-        #print("Length of self.t:", len(self.t_range))
-        #print("Length of self.total_energies:", len(self.total_energies))
         plt.plot(self.t_range, self.total_energies)
+        plt.plot(self.t_range, self.total_kinetics)
+        plt.plot(self.t_range, self.total_potentials)
+        plt.legend(["Total","Kinetic","Potential"])
         plt.xlabel("Time")
         plt.ylabel("Energy")
         plt.title("Ground State Energy")
