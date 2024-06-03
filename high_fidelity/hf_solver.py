@@ -14,12 +14,15 @@ class hf_solver:
     This is a high-fidelity solver for time-evolving wave functions, used to generate training data and animations. 
 
     Methods:
-    1. get_ranges = Used the store the spacial and temporal grids in external variables
-    2. set_initial_state: Sets the initial state of the wavefunction.
-    3. construct_hamiltonian: Generates the hamiltonian matrix. Input tag to choose your wavefunction, current takes: quantum harmonic oscillator ("QHO") or Gross-Pitaevskii ("GP")
-    4. run_simulation: Used for generating training data. The collect_data attribute is used to determine the length of time data will be collected for. This is due to exponentially increasing error accumulation.
-    5. run_animation: Plays an animation of the wave propagation.
-    6. graph_energy: Generates an energy/time graph after a complete simulation. Works with both run_simulation and run_animation.
+    1. get_ranges: Returns the space and time arrays
+    2. get_all_states: Returns all time-evolved states from a sim
+    3. get_run_time: Returns the runtme of a sim
+    4. set_initial_state: Sets the initial state of the wavefunction
+    5. construct_hamiltonian: Generates the hamiltonian matrix. Input tag to choose your wavefunction, current takes: quantum harmonic oscillator ("QHO") or Gross-Pitaevskii ("GP")
+    6. run_solver: Runs the actual time-stepper
+    7. animation: Plays an animation in the iPython viewer or downloads an MP4
+    8. graph_energy: Generates an energy/time graph
+    9. graph_particle_num: Generates a particle number/time graph
 
     Questions can be sent to kozeraja@msu.edu
     '''
@@ -83,7 +86,7 @@ class hf_solver:
 
         self.hamiltonian = hamiltonian
     
-    def run_solver(self, gif = False, animation = True, collect_data = False):
+    def run_solver(self, gif = False, animation = True):
         total_energies = np.ones(self.Nt)
         total_kinetics = np.ones(self.Nt)
         total_potentials = np.ones(self.Nt)
@@ -94,11 +97,6 @@ class hf_solver:
         time_start = time.time()
 
         eigenvalues, eigenvectors = sp.linalg.eigh(self.hamiltonian)
-
-        if animation == True:
-            fig, ax = plt.subplots(figsize=(10, 5))
-        else:
-            pass
 
         for t in self.t_range:
         
@@ -113,10 +111,7 @@ class hf_solver:
                 total_potentials[step] = np.dot(np.dot(np.conj(final_state_norm[:]),self.potential), final_state_norm[:])
                 particle_num[step] = sp.integrate.trapezoid(np.abs(final_state_norm[:])**2, self.x_range)
 
-                if collect_data == True:
-                    all_states[step, :, :] = final_state_norm[:]
-                else:
-                    pass
+                all_states[step, :, :] = final_state_norm[:]
     
             else:
                 self.initial_state = final_state_norm[:].copy()
@@ -135,47 +130,13 @@ class hf_solver:
                 total_potentials[step] = np.dot(np.dot(np.conj(final_state_norm[:]),self.potential), final_state_norm[:])
                 particle_num[step] = sp.integrate.trapezoid(np.abs(final_state_norm[:])**2, self.x_range)
 
-                if collect_data == True:
-                    all_states[step, :, :] = final_state_norm[:]
-                else:
-                    pass
-
-            if animation == True:
-                plt.plot(self.x_range, (np.real(final_state_norm[:])))
-                plt.plot(self.x_range, (np.imag(final_state_norm[:])))
-                plt.plot(self.x_range, np.abs(final_state_norm[:])**2)
-    
-                plt.xlim([-self.x_limit,self.x_limit])
-                plt.ylim([-1,1])
-                plt.xlabel("Position")
-                plt.ylabel("Wavefunction")
-                plt.legend(["Real","Imaginary", "Density"])
-
-                frame_filename = f"frame_{t}.png"
-                fig.savefig(frame_filename)
-                self.frames.append(frame_filename)
-
-                clear_output(wait=True)  
-                display(fig) 
-                fig.clear()
-            else:
-                pass
+                all_states[step, :, :] = final_state_norm[:]
 
             step += 1
 
         time_finish = time.time()
         time_diff = time_finish - time_start
         print("Time taken:", time_diff, "sec")
-
-        if gif == True and animation == True:
-            images = []
-            for frame in self.frames:
-                images.append(imageio.imread(frame))
-                os.remove(frame)  # Remove the temporary image file after adding it to the GIF
-            imageio.mimsave('animation.mp4', images, fps=20)  # Adjust duration as needed
-        else:
-            for frame in self.frames:
-                os.remove(frame)
 
         self.total_energies = total_energies
         self.total_kinetics = total_kinetics
@@ -184,6 +145,36 @@ class hf_solver:
         self.all_states = all_states
         self.time_diff = time_diff
         
+    def animation(self, show=False, save=False):
+        if show or save:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            images = []
+            for i in range(len(self.t_range)):
+                ax.plot(self.x_range, np.real(self.all_states[i, 0, :]), label="Real")
+                ax.plot(self.x_range, np.imag(self.all_states[i, 0, :]), label="Imaginary")
+                ax.plot(self.x_range, np.abs(self.all_states[i, 0, :])**2, label="Density")
+    
+                ax.set_xlim([-self.x_limit, self.x_limit])
+                ax.set_ylim([-1, 1])
+                ax.set_xlabel("Position")
+                ax.set_ylabel("Wavefunction")
+                ax.legend()
+    
+                fig.canvas.draw()
+                image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+                image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+                images.append(image)
+    
+                if show:
+                    clear_output(wait=True)
+                    display(fig)
+                ax.clear()
+    
+            plt.close(fig)
+            
+            if save:
+                imageio.mimsave('animation.mp4', images, fps=20)  # Adjust fps as needed
+
 
     def graph_energy(self):
         plt.plot(self.t_range, self.total_energies)
